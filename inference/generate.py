@@ -94,9 +94,13 @@ def main(
         config (str): Path to the model configuration file.
         input_file (str, optional): Path to a file containing input prompts. Defaults to "".
         interactive (bool, optional): Whether to run in interactive mode. Defaults to True.
-        max_new_tokens (int, optional): Maximum number of new tokens to generate. Defaults to 100.
-        temperature (float, optional): Temperature for sampling. Defaults to 1.0.
+    max_new_tokens (int, optional): Maximum number of new tokens to generate. Defaults to 100.
+    temperature (float, optional): Temperature for sampling. Defaults to 1.0.
     """
+    if not interactive and not input_file:
+        raise ValueError("input_file must be provided when interactive mode is disabled")
+    if input_file and not os.path.exists(input_file):
+        raise FileNotFoundError(f"Input file not found: {input_file}")
     world_size = int(os.getenv("WORLD_SIZE", "1"))
     rank = int(os.getenv("RANK", "0"))
     local_rank = int(os.getenv("LOCAL_RANK", "0"))
@@ -117,6 +121,7 @@ def main(
     tokenizer = AutoTokenizer.from_pretrained(ckpt_path)
     tokenizer.decode(generate(model, [tokenizer.encode("DeepSeek")], 2, -1, 1.)[0])
     load_model(model, os.path.join(ckpt_path, f"model{rank}-mp{world_size}.safetensors"))
+    model.eval()
 
     if interactive:
         messages = []
@@ -144,7 +149,7 @@ def main(
             messages.append({"role": "assistant", "content": completion})
     else:
         with open(input_file) as f:
-            prompts = [line.strip() for line in f.readlines()]
+            prompts = [line.strip() for line in f.readlines() if line.strip()]
         assert len(prompts) <= args.max_batch_size, f"Number of prompts exceeds maximum batch size ({args.max_batch_size})"
         prompt_tokens = [tokenizer.apply_chat_template([{"role": "user", "content": prompt}], add_generation_prompt=True) for prompt in prompts]
         completion_tokens = generate(model, prompt_tokens, max_new_tokens, tokenizer.eos_token_id, temperature)
